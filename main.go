@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 func echoHandler(w http.ResponseWriter, r *http.Request) {
@@ -34,8 +35,18 @@ func echoHandler(w http.ResponseWriter, r *http.Request) {
 		response.Params = r.URL.Query()
 	}
 
-	// 構造体を JSON にエンコードしてレスポンスとして送信
-	json.NewEncoder(w).Encode(response)
+	// 構造体を整形せずに JSON にエンコード（レスポンス用）
+	responseJSON, _ := json.Marshal(response)
+
+	// 構造体を整形した JSON にエンコード（標準出力用）
+	prettyJSON, _ := json.MarshalIndent(response, "", "  ")
+	// 現在時刻を取得
+	currentTime := time.Now().Format("2006-01-02 15:04:05.000")
+	// 標準出力に日付と整形された JSON を書き出す
+	fmt.Printf("%s: %s\n----\n", currentTime, string(prettyJSON))
+
+	// レスポンスとして整形されていない JSON を送信
+	w.Write(responseJSON)
 }
 
 func main() {
@@ -48,6 +59,6 @@ func main() {
 
 	// サーバーを指定されたポートで起動
 	address := fmt.Sprintf(":%d", *port)
-	fmt.Printf("Starting echo-server at %s\n", address)
+	fmt.Printf("Starting echo-server at %s\n----\n", address)
 	http.ListenAndServe(address, nil)
 }
