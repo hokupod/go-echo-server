@@ -1,64 +1,135 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
-func echoHandler(w http.ResponseWriter, r *http.Request) {
-	// レスポンスの Content-Type を JSON に設定
-	w.Header().Set("Content-Type", "application/json")
+const (
+	timeFormat = "2006-01-02 15:04:05.000"
+)
 
-	// リクエストボディを読み取る
-	body, _ := io.ReadAll(r.Body)
-	defer r.Body.Close()
+type SlackNotifier struct {
+	WebhookURL string
+}
 
-	// レスポンス用の構造体を定義
-	response := struct {
-		Method string      `json:"method"`
-		Path   string      `json:"path"`
-		Body   string      `json:"body,omitempty"`
-		Params interface{} `json:"params,omitempty"`
-	}{
-		Method: r.Method,
-		Path:   r.URL.Path,
+func NewSlackNotifier(webhookURL string) *SlackNotifier {
+	return &SlackNotifier{WebhookURL: webhookURL}
+}
+
+func (sn *SlackNotifier) Notify(message string) error {
+	if sn.WebhookURL == "" {
+		return nil
 	}
 
-	// リクエストメソッドに応じて処理を分岐
-	if r.Method == "POST" {
-		response.Body = string(body)
-	} else if r.Method == "GET" {
-		response.Params = r.URL.Query()
+	payload := map[string]string{"text": message}
+	jsonValue, err := json.Marshal(payload)
+	if err != nil {
+		return err
 	}
 
-	// 構造体を整形せずに JSON にエンコード（レスポンス用）
-	responseJSON, _ := json.Marshal(response)
+	resp, err := http.Post(sn.WebhookURL, "application/json", bytes.NewBuffer(jsonValue))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
 
-	// 構造体を整形した JSON にエンコード（標準出力用）
-	prettyJSON, _ := json.MarshalIndent(response, "", "  ")
-	// 現在時刻を取得
-	currentTime := time.Now().Format("2006-01-02 15:04:05.000")
-	// 標準出力に日付と整形された JSON を書き出す
-	fmt.Printf("%s: %s\n----\n", currentTime, string(prettyJSON))
+	return nil
+}
 
-	// レスポンスとして整形されていない JSON を送信
-	w.Write(responseJSON)
+func logMessage(message string) {
+	currentTime := time.Now().Format(timeFormat)
+	fmt.Printf("%s: %s\n----\n", currentTime, message)
+}
+
+func parsePort() int {
+	portNum, _ := strconv.Atoi(os.Getenv("PORT"))
+	if portNum == 0 {
+		portNum = 8080
+	}
+	return portNum
+}
+
+func getClientIP(r *http.Request) string {
+	ip := r.RemoteAddr
+	if ipPortSeparator := strings.LastIndex(ip, ":"); ipPortSeparator != -1 {
+		ip = ip[:ipPortSeparator]
+	}
+	return ip
+}
+
+func getRealClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		i := strings.Index(xff, ", ")
+		if i == -1 {
+			return xff
+		}
+		return xff[:i]
+	}
+	if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
+		return xrip
+	}
+	return getClientIP(r)
+}
+
+func echoHandler(notifier *SlackNotifier) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		defer r.Body.Close()
+
+		response := struct {
+			ClientIP string      `json:"client_ip"`
+			Method   string      `json:"method"`
+			Host     string      `json:"host"`
+			Path     string      `json:"path"`
+			Body     string      `json:"body,omitempty"`
+			Params   interface{} `json:"params,omitempty"`
+		}{
+			ClientIP: getRealClientIP(r),
+			Method:   r.Method,
+			Host:     r.Host,
+			Path:     r.URL.Path,
+		}
+
+		if r.Method == "POST" {
+			response.Body = string(body)
+		} else if r.Method == "GET" {
+			response.Params = r.URL.Query()
+		}
+
+		responseJSON, _ := json.Marshal(response)
+		prettyJSON, _ := json.MarshalIndent(response, "", "  ")
+		logMessage(string(prettyJSON))
+
+		format := "Web request received at *%s* from *%s* \n```%s```"
+		if err := notifier.Notify(fmt.Sprintf(format, response.Host, response.ClientIP, string(prettyJSON))); err != nil {
+			logMessage(fmt.Sprintf("Error posting to Slack: %s", err))
+		} else {
+			logMessage("Posted to Slack")
+		}
+
+		w.Write(responseJSON)
+	}
 }
 
 func main() {
-	// フラグ（コマンドライン引数）の定義
-	port := flag.Int("port", 8080, "port to listen on")
+	port := flag.Int("port", parsePort(), "port to listen on")
 	flag.Parse()
 
-	// ルートにハンドラーを登録
-	http.HandleFunc("/", echoHandler)
+	notifier := NewSlackNotifier(os.Getenv("SLACK_WEBHOOK_URL"))
+	http.HandleFunc("/", echoHandler(notifier))
 
-	// サーバーを指定されたポートで起動
 	address := fmt.Sprintf(":%d", *port)
-	fmt.Printf("Starting echo-server at %s\n----\n", address)
-	http.ListenAndServe(address, nil)
+	logMessage(fmt.Sprintf("Starting echo-server at %s", address))
+	if err := http.ListenAndServe(address, nil); err != nil {
+		logMessage(fmt.Sprintf("Server failed to start: %s", err))
+	}
 }
