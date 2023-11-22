@@ -83,12 +83,12 @@ func echoHandler(notifier *SlackNotifier, authKey string) http.HandlerFunc {
 		defer r.Body.Close()
 
 		response := struct {
-			ClientIP string      `json:"client_ip"`
-			Method   string      `json:"method"`
-			Host     string      `json:"host"`
-			Path     string      `json:"path"`
-			Body     string      `json:"body,omitempty"`
-			Params   url.Values  `json:"params,omitempty"`
+			ClientIP string     `json:"client_ip"`
+			Method   string     `json:"method"`
+			Host     string     `json:"host"`
+			Path     string     `json:"path"`
+			Body     string     `json:"body,omitempty"`
+			Params   url.Values `json:"params,omitempty"`
 		}{
 			ClientIP: getRealClientIP(r),
 			Method:   r.Method,
@@ -134,8 +134,23 @@ func main() {
 	http.HandleFunc("/", echoHandler(notifier, *authKey))
 
 	address := fmt.Sprintf(":%d", *port)
-	logMessage(fmt.Sprintf("Starting echo-server at %s with the authKey '%s'", address, *authKey))
+	message := fmt.Sprintf("Starting echo-server at %s with the authKey '%s'", address, *authKey)
+	logMessage(fmt.Sprintf(message))
+
+	if err := notifier.Notify(message); err != nil {
+		logMessage(fmt.Sprintf("Error posting to Slack: %s", err))
+	} else {
+		logMessage("Posted server startup message to slack.")
+	}
+
 	if err := http.ListenAndServe(address, nil); err != nil {
-		logMessage(fmt.Sprintf("Server failed to start: %s", err))
+		message = fmt.Sprintf("Server failed to start: %s", err)
+		logMessage(message)
+
+		if err := notifier.Notify(message); err != nil {
+			logMessage(fmt.Sprintf("Error posting to Slack: %s", err))
+		} else {
+			logMessage("Posted server startup failure message to slack.")
+		}
 	}
 }
