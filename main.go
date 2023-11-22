@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -76,7 +77,7 @@ func getRealClientIP(r *http.Request) string {
 	return getClientIP(r)
 }
 
-func echoHandler(notifier *SlackNotifier) http.HandlerFunc {
+func echoHandler(notifier *SlackNotifier, authKey string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		defer r.Body.Close()
@@ -87,18 +88,26 @@ func echoHandler(notifier *SlackNotifier) http.HandlerFunc {
 			Host     string      `json:"host"`
 			Path     string      `json:"path"`
 			Body     string      `json:"body,omitempty"`
-			Params   interface{} `json:"params,omitempty"`
+			Params   url.Values  `json:"params,omitempty"`
 		}{
 			ClientIP: getRealClientIP(r),
 			Method:   r.Method,
 			Host:     r.Host,
 			Path:     r.URL.Path,
+			Params:   r.URL.Query(),
+		}
+
+		if authKey != "" {
+			if response.Params.Get("authKey") != authKey {
+				w.WriteHeader(http.StatusForbidden)
+				w.Write([]byte("403 - Forbidden"))
+				logMessage(fmt.Sprintf("Forbidden request from %s", response.ClientIP))
+				return
+			}
 		}
 
 		if r.Method == "POST" {
 			response.Body = string(body)
-		} else if r.Method == "GET" {
-			response.Params = r.URL.Query()
 		}
 
 		responseJSON, _ := json.Marshal(response)
@@ -117,14 +126,15 @@ func echoHandler(notifier *SlackNotifier) http.HandlerFunc {
 }
 
 func main() {
+	authKey := flag.String("authKey", os.Getenv("AUTH_KEY"), "add authentication key parameter to requests")
 	port := flag.Int("port", parsePort(), "port to listen on")
 	flag.Parse()
 
 	notifier := NewSlackNotifier(os.Getenv("SLACK_WEBHOOK_URL"))
-	http.HandleFunc("/", echoHandler(notifier))
+	http.HandleFunc("/", echoHandler(notifier, *authKey))
 
 	address := fmt.Sprintf(":%d", *port)
-	logMessage(fmt.Sprintf("Starting echo-server at %s", address))
+	logMessage(fmt.Sprintf("Starting echo-server at %s with the authKey '%s'", address, *authKey))
 	if err := http.ListenAndServe(address, nil); err != nil {
 		logMessage(fmt.Sprintf("Server failed to start: %s", err))
 	}
