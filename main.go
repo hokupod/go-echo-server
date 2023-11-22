@@ -68,11 +68,7 @@ func getClientIP(r *http.Request) string {
 
 func getRealClientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		i := strings.Index(xff, ", ")
-		if i == -1 {
-			return xff
-		}
-		return xff[:i]
+		return strings.Split(xff, ",")[0]
 	}
 	if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
 		return xrip
