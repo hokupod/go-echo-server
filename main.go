@@ -83,14 +83,16 @@ func echoHandler(notifier *SlackNotifier, authKey string) http.HandlerFunc {
 		defer r.Body.Close()
 
 		response := struct {
-			ClientIP string     `json:"client_ip"`
-			Method   string     `json:"method"`
-			Host     string     `json:"host"`
-			Path     string     `json:"path"`
-			Body     string     `json:"body,omitempty"`
-			Params   url.Values `json:"params,omitempty"`
+			ClientIP string      `json:"client_ip"`
+			Headers  http.Header `json:"headers"`
+			Method   string      `json:"method"`
+			Host     string      `json:"host"`
+			Path     string      `json:"path"`
+			Body     string      `json:"body,omitempty"`
+			Params   url.Values  `json:"params,omitempty"`
 		}{
 			ClientIP: getRealClientIP(r),
+			Headers:  r.Header,
 			Method:   r.Method,
 			Host:     r.Host,
 			Path:     r.URL.Path,
