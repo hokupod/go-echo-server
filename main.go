@@ -42,6 +42,7 @@ func (sn *SlackNotifier) Notify(message string) error {
 		return err
 	}
 	defer resp.Body.Close()
+	logMessage("Successfully posted to slack")
 
 	return nil
 }
@@ -119,11 +120,12 @@ func echoHandler(notifier *SlackNotifier, authKey string) http.HandlerFunc {
 		format := "Web request received at *%s* from *%s* \n```%s```"
 		if err := notifier.Notify(fmt.Sprintf(format, response.Host, response.ClientIP, string(prettyJSON))); err != nil {
 			logMessage(fmt.Sprintf("Error posting to Slack: %s", err))
-		} else {
-			logMessage("Posted to Slack")
 		}
 
-		w.Write(responseJSON)
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := w.Write(responseJSON); err != nil {
+			logMessage(fmt.Sprintf("Error writing response: %s", err))
+		}
 	}
 }
 
@@ -141,8 +143,6 @@ func main() {
 
 	if err := notifier.Notify(message); err != nil {
 		logMessage(fmt.Sprintf("Error posting to Slack: %s", err))
-	} else {
-		logMessage("Posted server startup message to slack.")
 	}
 
 	if err := http.ListenAndServe(address, nil); err != nil {
@@ -151,8 +151,6 @@ func main() {
 
 		if err := notifier.Notify(message); err != nil {
 			logMessage(fmt.Sprintf("Error posting to Slack: %s", err))
-		} else {
-			logMessage("Posted server startup failure message to slack.")
 		}
 	}
 }
