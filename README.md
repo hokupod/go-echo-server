@@ -10,6 +10,35 @@ Start echo server
 go run main.go
 ```
 
+Send a web request
+```
+curl "http://localhost:8080/test?hoge=aa&hoge=bb&fuga=cc"
+
+{
+  "client_ip": "[::1]",
+  "headers": {
+    "Accept": [
+      "*/*"
+    ],
+    "User-Agent": [
+      "curl/8.4.0"
+    ]
+  },
+  "method": "GET",
+  "host": "localhost:8080",
+  "path": "/test",
+  "params": {
+    "hoge": [
+      "aa",
+      "bb"
+    ],
+    "fuga": [
+      "cc"
+    ]
+  }
+}
+```
+
 Options
 --
 - `-port`: Select the port to listen on (default: 8080)
